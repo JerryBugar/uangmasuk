@@ -87,6 +87,7 @@ class TransactionController extends Controller
                 'last_page' => $transactions->lastPage(),
                 'per_page' => $transactions->perPage(),
                 'total' => $transactions->total(),
+                'from' => $transactions->firstItem(),
             ]
         ]);
     }
@@ -113,6 +114,27 @@ class TransactionController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Transaksi berhasil dihapus',
+            'total_amount' => $totalAmount
+        ]);
+    }
+
+    /**
+     * Menghapus beberapa transaksi sekaligus (bulk delete)
+     */
+    public function bulkDelete(Request $request): JsonResponse
+    {
+        $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'integer'
+        ]);
+
+        Transaction::whereIn('id', $request->ids)->delete();
+
+        $totalAmount = Transaction::getTotalAmount();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Transaksi yang dipilih telah berhasil dihapus.',
             'total_amount' => $totalAmount
         ]);
     }

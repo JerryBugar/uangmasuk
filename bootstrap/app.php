@@ -11,7 +11,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        $middleware->validateCsrfTokens(except: [
+            // Tambahkan endpoint bulk delete ke pengecualian jika perlu
+            // 'transactions/bulk-delete' // Jangan tambahkan ini jika ingin CSRF aktif
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

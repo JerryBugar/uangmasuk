@@ -8,3 +8,5 @@ Route::post('/transactions', [TransactionController::class, 'store'])->name('tra
 Route::get('/transactions/total', [TransactionController::class, 'getTotal'])->name('transactions.total');
 Route::get('/transactions/data', [TransactionController::class, 'getAllTransactions'])->name('transactions.data');
 Route::delete('/transactions/{id}', [TransactionController::class, 'destroy'])->name('transactions.destroy');
+Route::delete('/transactions/bulk-delete', [TransactionController::class, 'bulkDelete'])->name('transactions.bulkDelete');
+Route::post('/transactions/bulk-delete', [TransactionController::class, 'bulkDelete'])->name('transactions.bulkDeletePost');

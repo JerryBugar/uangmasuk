@@ -34,7 +34,7 @@
                 </div>
                 <div class="col-md-4 mb-3">
                     <label for="submit-btn" class="form-label">&nbsp;</label>
-                    <button type="submit" class="btn btn-success w-100">
+                    <button type="submit" id="submit-btn" class="btn btn-success w-100">
                         <i class="bi bi-plus-lg"></i> Tambahkan
                     </button>
                 </div>
@@ -52,6 +52,17 @@
 <div class="row">
     <div class="col-12">
         <h4 class="mb-3">Riwayat Transaksi</h4>
+
+        <div id="bulk-action-bar" class="d-flex justify-content-between align-items-center mb-2 d-none">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="select-all-checkbox">
+                <label class="form-check-label" for="select-all-checkbox">Pilih Semua</label>
+            </div>
+            <button id="bulk-delete-btn" class="btn btn-danger btn-sm">
+                <i class="bi bi-trash"></i> Hapus yang Dipilih (<span id="selected-count">0</span>)
+            </button>
+        </div>
+
         <div id="transactions-list">
             <!-- Transaksi akan dimuat di sini -->
         </div>
@@ -61,6 +72,8 @@
 
 @section('scripts')
 <script>
+    let selectedIds = [];
+
     // Format angka ke format Rupiah
     function formatRupiah(angka) {
         if (angka === null || angka === undefined || angka === '') return 'Rp 0';
@@ -83,7 +96,7 @@
             const now = new Date();
             document.getElementById('update-time').textContent = now.toLocaleString('id-ID');
         } catch (error) {
-            console.error('Error fetching total:', error);
+            // Tidak menampilkan error
         }
     }
 
@@ -101,22 +114,33 @@
             let html = '';
             
             if (data.transactions && data.transactions.length > 0) {
+                document.getElementById('bulk-action-bar').classList.remove('d-none');
                 html += '<div class="list-group">';
                 
-                data.transactions.forEach(transaction => {
+                data.transactions.forEach((transaction, index) => {
+                    const itemNumber = data.pagination.from + index;
                     const date = new Date(transaction.created_at);
+                    const isChecked = selectedIds.includes(transaction.id);
+
                     html += `
                         <div class="list-group-item transaction-item" id="transaction-${transaction.id}">
-                            <div class="d-flex w-100 justify-content-between">
-                                <h6 class="mb-1">${formatRupiah(transaction.amount)}</h6>
-                                <div>
-                                    <small>${date.toLocaleString('id-ID')}</small>
-                                    <button class="btn btn-sm btn-danger ms-2" onclick="deleteTransaction(${transaction.id})">
-                                        <i class="bi bi-trash"></i> Hapus
-                                    </button>
+                            <div class="row align-items-center">
+                                <div class="col-auto">
+                                    <input class="form-check-input transaction-checkbox" type="checkbox" value="${transaction.id}" ${isChecked ? 'checked' : ''}>
+                                </div>
+                                <div class="col">
+                                    <div class="d-flex w-100 justify-content-between">
+                                        <h6 class="mb-1">${itemNumber}. ${formatRupiah(transaction.amount)}</h6>
+                                        <div>
+                                            <small>${date.toLocaleString('id-ID')}</small>
+                                            <button class="btn btn-sm btn-danger ms-2" onclick="deleteTransaction(${transaction.id})">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <p class="mb-1">${transaction.description || '<i>Tidak ada deskripsi</i>'}</p>
                                 </div>
                             </div>
-                            <p class="mb-1">${transaction.description}</p>
                         </div>
                     `;
                 });
@@ -148,20 +172,68 @@
                 html += '</ul></nav>';
             } else {
                 html = '<p class="text-muted">Belum ada transaksi</p>';
+                document.getElementById('bulk-action-bar').classList.add('d-none');
                 currentPage = 1;
             }
             
             transactionsList.innerHTML = html;
+            updateBulkActionUI();
         } catch (error) {
-            console.error('Error loading transactions:', error);
+            // Tidak menampilkan error
         }
     }
 
-    // Fungsi untuk menghapus transaksi
-    async function deleteTransaction(id) {
-        if (!confirm('Apakah Anda yakin ingin menghapus transaksi ini?')) {
+    function updateBulkActionUI() {
+        const selectedCount = document.getElementById('selected-count');
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        const totalVisibleCheckboxes = document.querySelectorAll('.transaction-checkbox').length;
+        const totalSelectedVisible = document.querySelectorAll('.transaction-checkbox:checked').length;
+
+        selectedCount.textContent = selectedIds.length;
+
+        if (totalVisibleCheckboxes > 0 && totalSelectedVisible === totalVisibleCheckboxes) {
+            selectAllCheckbox.checked = true;
+            selectAllCheckbox.indeterminate = false;
+        } else if (totalSelectedVisible > 0 || (selectedIds.length > 0 && totalSelectedVisible === 0) ) {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = true;
+        } else {
+            selectAllCheckbox.checked = false;
+            selectAllCheckbox.indeterminate = false;
+        }
+    }
+
+    async function bulkDeleteTransactions() {
+        console.log('Attempting to bulk delete transactions with IDs:', selectedIds);
+        if (selectedIds.length === 0) {
             return;
         }
+
+        try {
+            const response = await fetch('{{ route("transactions.bulkDeletePost") }}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ ids: selectedIds })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                selectedIds = [];
+                loadTransactions(currentPage);
+                refreshTotal();
+            }
+        } catch (error) {
+            // Tidak menampilkan error
+        }
+    }
+
+    // Fungsi untuk menghapus transaksi tunggal
+    async function deleteTransaction(id) {
+        console.log('Attempting to delete single transaction with ID:', id);
         
         try {
             const response = await fetch(`/transactions/${id}`, {
@@ -175,26 +247,17 @@
             const data = await response.json();
             
             if (data.success) {
-                const transactionElement = document.getElementById(`transaction-${id}`);
-                if (transactionElement) {
-                    transactionElement.remove();
-                }
-                
-                document.getElementById('total-amount').textContent = formatRupiah(data.total_amount);
-                
-                alert('Transaksi berhasil dihapus!');
-            } else {
-                alert(data.message || 'Gagal menghapus transaksi');
+                selectedIds = selectedIds.filter(selectedId => selectedId !== id);
+                loadTransactions(currentPage);
+                refreshTotal();
             }
         } catch (error) {
-            console.error('Error deleting transaction:', error);
-            alert('Terjadi kesalahan saat menghapus transaksi');
+            // Tidak menampilkan error
         }
     }
     
     // Fungsi untuk membersihkan format Rupiah menjadi angka
     function cleanRupiahFormat(input) {
-        // Hapus pemisah ribuan (titik) dan ganti pemisah desimal (koma) dengan titik
         let cleanValue = input.replace(/\./g, '');
         cleanValue = cleanValue.replace(/,/g, '.');
         return cleanValue;
@@ -203,15 +266,19 @@
     // Submit form transaksi
     document.getElementById('transaction-form').addEventListener('submit', async function(e) {
         e.preventDefault();
+        const submitBtn = document.getElementById('submit-btn');
+        const originalBtnHTML = submitBtn.innerHTML;
         
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Menyimpan...';
+
         const amountInput = document.getElementById('amount');
         let amountValue = amountInput.value;
-        
-        // Bersihkan format Rupiah menjadi angka biasa
         amountValue = cleanRupiahFormat(amountValue);
         
-        if (!/^\d+(\.\d+)?$/.test(amountValue) || parseFloat(amountValue) <= 0) {
-            alert('Jumlah uang harus berupa angka positif');
+        if (!/^\d*\.?\d*$/.test(amountValue) || parseFloat(amountValue) <= 0) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnHTML;
             return;
         }
         
@@ -225,28 +292,60 @@
                 method: 'POST',
                 body: formData
             });
-            
             const data = await response.json();
-            
             if (data.success) {
                 this.reset();
-                // Setelah reset, cleave akan mengosongkan input, jadi kita tidak perlu set manual
-                
                 refreshTotal();
                 loadTransactions();
-                
-                alert('Transaksi berhasil ditambahkan!');
-            } else {
-                alert(data.message || 'Gagal menambahkan transaksi');
             }
         } catch (error) {
-            console.error('Error submitting form:', error);
-            alert('Terjadi kesalahan saat menambahkan transaksi');
+            // Tidak menampilkan error
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = originalBtnHTML;
         }
     });
 
-    // Inisialisasi
+    // Event listener untuk bulk actions
     document.addEventListener('DOMContentLoaded', function() {
+        const selectAllCheckbox = document.getElementById('select-all-checkbox');
+        const transactionsList = document.getElementById('transactions-list');
+        const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
+
+        selectAllCheckbox.addEventListener('change', function() {
+            const visibleCheckboxes = document.querySelectorAll('.transaction-checkbox');
+            visibleCheckboxes.forEach(checkbox => {
+                const id = parseInt(checkbox.value);
+                if (this.checked) {
+                    checkbox.checked = true;
+                    if (!selectedIds.includes(id)) {
+                        selectedIds.push(id);
+                    }
+                } else {
+                    checkbox.checked = false;
+                    selectedIds = selectedIds.filter(selectedId => selectedId !== id);
+                }
+            });
+            updateBulkActionUI();
+        });
+
+        transactionsList.addEventListener('change', function(e) {
+            if (e.target.classList.contains('transaction-checkbox')) {
+                const id = parseInt(e.target.value);
+                if (e.target.checked) {
+                    if (!selectedIds.includes(id)) {
+                        selectedIds.push(id);
+                    }
+                } else {
+                    selectedIds = selectedIds.filter(selectedId => selectedId !== id);
+                }
+                updateBulkActionUI();
+            }
+        });
+
+        bulkDeleteBtn.addEventListener('click', bulkDeleteTransactions);
+
+        // Inisialisasi awal
         refreshTotal();
         loadTransactions(currentPage);
         
