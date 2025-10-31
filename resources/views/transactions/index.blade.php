@@ -123,7 +123,7 @@
                     const isChecked = selectedIds.includes(transaction.id);
 
                     html += `
-                        <div class="list-group-item transaction-item" id="transaction-${transaction.id}">
+                        <div class="list-group-item transaction-item" id="transaction-${transaction.id}" style="margin-bottom: 8px;">
                             <div class="row align-items-center">
                                 <div class="col-auto">
                                     <input class="form-check-input transaction-checkbox" type="checkbox" value="${transaction.id}" ${isChecked ? 'checked' : ''}>
