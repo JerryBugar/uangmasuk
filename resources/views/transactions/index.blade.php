@@ -73,6 +73,8 @@
 @section('scripts')
 <script>
     let selectedIds = [];
+    let selectAllMode = false; // Menandakan apakah mode 'select all' sedang aktif untuk semua data
+    let allTransactionIds = []; // Menyimpan semua ID transaksi di database
 
     // Format angka ke format Rupiah
     function formatRupiah(angka) {
@@ -120,7 +122,8 @@
                 data.transactions.forEach((transaction, index) => {
                     const itemNumber = data.pagination.from + index;
                     const date = new Date(transaction.created_at);
-                    const isChecked = selectedIds.includes(transaction.id);
+                    // Pada mode select-all, semua transaksi dianggap dipilih
+                    const isChecked = selectAllMode || selectedIds.includes(transaction.id);
 
                     html += `
                         <div class="list-group-item transaction-item" id="transaction-${transaction.id}" style="margin-bottom: 8px;">
@@ -189,23 +192,37 @@
         const totalVisibleCheckboxes = document.querySelectorAll('.transaction-checkbox').length;
         const totalSelectedVisible = document.querySelectorAll('.transaction-checkbox:checked').length;
 
-        selectedCount.textContent = selectedIds.length;
-
-        if (totalVisibleCheckboxes > 0 && totalSelectedVisible === totalVisibleCheckboxes) {
+        // Jika dalam mode select all, tampilkan jumlah total semua transaksi
+        if (selectAllMode) {
+            selectedCount.textContent = allTransactionIds.length;
             selectAllCheckbox.checked = true;
             selectAllCheckbox.indeterminate = false;
-        } else if (totalSelectedVisible > 0 || (selectedIds.length > 0 && totalSelectedVisible === 0) ) {
-            selectAllCheckbox.checked = false;
-            selectAllCheckbox.indeterminate = true;
         } else {
-            selectAllCheckbox.checked = false;
-            selectAllCheckbox.indeterminate = false;
+            selectedCount.textContent = selectedIds.length;
+
+            if (totalVisibleCheckboxes > 0 && totalSelectedVisible === totalVisibleCheckboxes) {
+                selectAllCheckbox.checked = true;
+                selectAllCheckbox.indeterminate = false;
+            } else if (totalSelectedVisible > 0 || (selectedIds.length > 0 && totalSelectedVisible === 0) ) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = true;
+            } else {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            }
         }
     }
 
     async function bulkDeleteTransactions() {
         console.log('Attempting to bulk delete transactions with IDs:', selectedIds);
-        if (selectedIds.length === 0) {
+        let idsToDelete = selectedIds;
+        
+        // Jika dalam mode select-all, hapus semua ID yang tersedia
+        if (selectAllMode) {
+            idsToDelete = allTransactionIds;
+        }
+        
+        if (idsToDelete.length === 0) {
             return;
         }
 
@@ -216,13 +233,15 @@
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ ids: selectedIds })
+                body: JSON.stringify({ ids: idsToDelete })
             });
 
             const data = await response.json();
 
             if (data.success) {
                 selectedIds = [];
+                selectAllMode = false;
+                allTransactionIds = [];
                 loadTransactions(currentPage);
                 refreshTotal();
             }
@@ -247,7 +266,13 @@
             const data = await response.json();
             
             if (data.success) {
-                selectedIds = selectedIds.filter(selectedId => selectedId !== id);
+                // Jika dalam mode select all, hapus dari allTransactionIds
+                if (selectAllMode) {
+                    allTransactionIds = allTransactionIds.filter(transactionId => transactionId !== id);
+                } else {
+                    selectedIds = selectedIds.filter(selectedId => selectedId !== id);
+                }
+                
                 loadTransactions(currentPage);
                 refreshTotal();
             }
@@ -312,33 +337,84 @@
         const transactionsList = document.getElementById('transactions-list');
         const bulkDeleteBtn = document.getElementById('bulk-delete-btn');
 
-        selectAllCheckbox.addEventListener('change', function() {
-            const visibleCheckboxes = document.querySelectorAll('.transaction-checkbox');
-            visibleCheckboxes.forEach(checkbox => {
-                const id = parseInt(checkbox.value);
-                if (this.checked) {
-                    checkbox.checked = true;
-                    if (!selectedIds.includes(id)) {
-                        selectedIds.push(id);
+        selectAllCheckbox.addEventListener('change', async function() {
+            if (this.checked) {
+                // Jika ini adalah klik "pilih semua", ambil semua ID transaksi dari database
+                if (!selectAllMode) {
+                    try {
+                        // Ambil semua ID transaksi dari server
+                        const response = await fetch('{{ route("transactions.allIds") }}');
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            allTransactionIds = data.ids;
+                            selectedIds = [...allTransactionIds]; // Pilih semua ID
+                            selectAllMode = true; // Aktifkan mode select all
+                            
+                            // Centang semua checkbox yang saat ini terlihat
+                            const visibleCheckboxes = document.querySelectorAll('.transaction-checkbox');
+                            visibleCheckboxes.forEach(checkbox => {
+                                checkbox.checked = true;
+                            });
+                        }
+                    } catch (error) {
+                        console.error('Gagal mengambil semua ID transaksi:', error);
+                        // Jika gagal mendapatkan semua ID, hanya pilih yang terlihat untuk saat ini
+                        const visibleCheckboxes = document.querySelectorAll('.transaction-checkbox');
+                        visibleCheckboxes.forEach(checkbox => {
+                            const id = parseInt(checkbox.value);
+                            if (!selectedIds.includes(id)) {
+                                selectedIds.push(id);
+                            }
+                            checkbox.checked = true;
+                        });
                     }
                 } else {
-                    checkbox.checked = false;
-                    selectedIds = selectedIds.filter(selectedId => selectedId !== id);
+                    // Jika sudah dalam mode select all, hanya centang yang terlihat
+                    const visibleCheckboxes = document.querySelectorAll('.transaction-checkbox');
+                    visibleCheckboxes.forEach(checkbox => {
+                        checkbox.checked = true;
+                    });
                 }
-            });
+            } else {
+                // Jika tidak dicentang, hapus semua pilihan
+                selectedIds = [];
+                selectAllMode = false;
+                allTransactionIds = [];
+                
+                // Hapus centang dari semua checkbox yang terlihat
+                const visibleCheckboxes = document.querySelectorAll('.transaction-checkbox');
+                visibleCheckboxes.forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+            }
             updateBulkActionUI();
         });
 
         transactionsList.addEventListener('change', function(e) {
             if (e.target.classList.contains('transaction-checkbox')) {
                 const id = parseInt(e.target.value);
-                if (e.target.checked) {
-                    if (!selectedIds.includes(id)) {
-                        selectedIds.push(id);
+                
+                // Jika dalam mode select all, hapus dari pilihan ketika tidak dicentang
+                if (selectAllMode) {
+                    if (!e.target.checked) {
+                        // Jika salah satu tidak dicentang dalam mode select-all, 
+                        // kembali ke mode normal
+                        selectAllMode = false;
+                        allTransactionIds = [];
+                        selectedIds = Array.from(document.querySelectorAll('.transaction-checkbox:checked'))
+                            .map(checkbox => parseInt(checkbox.value));
                     }
                 } else {
-                    selectedIds = selectedIds.filter(selectedId => selectedId !== id);
+                    if (e.target.checked) {
+                        if (!selectedIds.includes(id)) {
+                            selectedIds.push(id);
+                        }
+                    } else {
+                        selectedIds = selectedIds.filter(selectedId => selectedId !== id);
+                    }
                 }
+                
                 updateBulkActionUI();
             }
         });

@@ -138,4 +138,17 @@ class TransactionController extends Controller
             'total_amount' => $totalAmount
         ]);
     }
+
+    /**
+     * Mendapatkan semua ID transaksi
+     */
+    public function getAllTransactionIds(): JsonResponse
+    {
+        $transactionIds = Transaction::pluck('id')->toArray();
+        
+        return response()->json([
+            'success' => true,
+            'ids' => $transactionIds
+        ]);
+    }
 }
